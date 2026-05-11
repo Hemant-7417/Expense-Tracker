@@ -47,6 +47,10 @@
       "handle": "filesystem"
     },
     {
+      "src": "/auth",
+      "dest": "/auth.html"
+    },
+    {
       "src": "/api/(.*)",
       "dest": "/api/index.js"
     },
