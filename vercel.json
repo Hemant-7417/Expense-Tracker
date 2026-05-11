@@ -1,20 +1,58 @@
 {
   "version": 2,
   "builds": [
-    { "src": "api/index.js", "use": "@vercel/node" },
-    { "src": "index.html", "use": "@vercel/static" },
-    { "src": "auth.html", "use": "@vercel/static" },
-    { "src": "style.css", "use": "@vercel/static" },
-    { "src": "mobile.css", "use": "@vercel/static" },
-    { "src": "auth.css", "use": "@vercel/static" },
-    { "src": "app.js", "use": "@vercel/static" },
-    { "src": "auth.js", "use": "@vercel/static" },
-    { "src": "auth-guard.js", "use": "@vercel/static" },
-    { "src": "firebase-config.js", "use": "@vercel/static" }
+    {
+      "src": "api/index.js",
+      "use": "@vercel/node"
+    },
+    {
+      "src": "index.html",
+      "use": "@vercel/static"
+    },
+    {
+      "src": "auth.html",
+      "use": "@vercel/static"
+    },
+    {
+      "src": "style.css",
+      "use": "@vercel/static"
+    },
+    {
+      "src": "mobile.css",
+      "use": "@vercel/static"
+    },
+    {
+      "src": "auth.css",
+      "use": "@vercel/static"
+    },
+    {
+      "src": "app.js",
+      "use": "@vercel/static"
+    },
+    {
+      "src": "auth.js",
+      "use": "@vercel/static"
+    },
+    {
+      "src": "auth-guard.js",
+      "use": "@vercel/static"
+    },
+    {
+      "src": "firebase-config.js",
+      "use": "@vercel/static"
+    }
   ],
   "routes": [
-    { "handle": "filesystem" },
-    { "src": "/api/(.*)", "dest": "/api/index.js" },
-    { "src": "/(.*)", "dest": "/index.html" }
+    {
+      "handle": "filesystem"
+    },
+    {
+      "src": "/api/(.*)",
+      "dest": "/api/index.js"
+    },
+    {
+      "src": "/(.*)",
+      "dest": "/index.html"
+    }
   ]
 }
