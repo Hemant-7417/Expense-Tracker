@@ -1056,11 +1056,11 @@
     },
     handleCategoryChange() {
       if (els.category.value === "custom") {
-        els.customCategoryWrapper.classList.remove("hidden");
-        els.customCategory.required = true;
+        if (els.customCategoryWrapper) els.customCategoryWrapper.classList.remove("hidden");
+        if (els.customCategory) els.customCategory.required = true;
       } else {
-        els.customCategoryWrapper.classList.add("hidden");
-        els.customCategory.required = false;
+        if (els.customCategoryWrapper) els.customCategoryWrapper.classList.add("hidden");
+        if (els.customCategory) els.customCategory.required = false;
       }
     },
     handleSmartCategory(event) {
