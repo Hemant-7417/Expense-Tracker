@@ -1,7 +1,7 @@
 const admin = require("../firebaseAdmin");
 
 /**
- * Protect routes — verify Firebase ID token from Authorization header.
+ * Protect routes — verify Firebase ID token from Authorization header.
  * Attaches the authenticated user's UID to `req.uid`.
  */
 const protect = async (req, res, next) => {
@@ -17,7 +17,7 @@ const protect = async (req, res, next) => {
   if (!token) {
     return res.status(401).json({
       success: false,
-      message: "Not authorized — no token provided",
+      message: "Not authorized — no token provided",
     });
   }
 
@@ -29,7 +29,7 @@ const protect = async (req, res, next) => {
     console.error("Firebase token verification failed:", error.message);
     return res.status(401).json({
       success: false,
-      message: "Not authorized — invalid or expired token",
+      message: "Not authorized — invalid or expired token",
     });
   }
 };

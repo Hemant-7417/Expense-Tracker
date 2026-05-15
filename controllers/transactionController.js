@@ -1,4 +1,5 @@
 const Transaction = require("../models/Transaction");
+const { roundMoney } = require("../utils/money");
 
 // Create a new transaction
 exports.createTransaction = async (req, res) => {
@@ -14,7 +15,7 @@ exports.createTransaction = async (req, res) => {
 
     const transaction = await Transaction.create({
       userId: req.uid,
-      amount,
+      amount: roundMoney(amount),
       type,
       account,
       category,
@@ -93,7 +94,7 @@ exports.updateTransaction = async (req, res) => {
       });
     }
 
-    if (amount) transaction.amount = amount;
+    if (amount) transaction.amount = roundMoney(amount);
     if (type) transaction.type = type;
     if (account) transaction.account = account;
     if (category) transaction.category = category;
@@ -199,20 +200,23 @@ exports.getTransactionSummary = async (req, res) => {
       }
     ]);
 
+    const round = roundMoney;
+
     const result = { income: 0, expense: 0, balance: 0, accounts: { cash: 0, upi: 0, bank: 0, card: 0 } };
     summary.forEach(item => {
-      if (item._id === "income") result.income = item.total;
-      if (item._id === "expense") result.expense = item.total;
+      if (item._id === "income") result.income = round(item.total);
+      if (item._id === "expense") result.expense = round(item.total);
     });
-    result.balance = result.income - result.expense;
+    result.balance = round(result.income - result.expense);
 
     accountSummary.forEach(item => {
       const acc = item._id.account || 'cash';
       const type = item._id.type;
       if (result.accounts[acc] === undefined) result.accounts[acc] = 0;
-      if (type === "income") result.accounts[acc] += item.total;
-      if (type === "expense") result.accounts[acc] -= item.total;
+      if (type === "income") result.accounts[acc] = round(result.accounts[acc] + item.total);
+      if (type === "expense") result.accounts[acc] = round(result.accounts[acc] - item.total);
     });
+
 
     res.status(200).json({
       success: true,

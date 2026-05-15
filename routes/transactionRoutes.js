@@ -28,7 +28,7 @@ router.get("/category/:category", getTransactionsByCategory);
 router.get("/stats/summary", getTransactionSummary);
 router.get("/stats/date-range", getTransactionsByDateRange);
 
-// ❗ Dynamic route LAST
+// ❗️ Dynamic route LAST
 router.get("/:id", getTransactionById);
 router.put("/:id", updateTransaction);
 router.delete("/:id", deleteTransaction);

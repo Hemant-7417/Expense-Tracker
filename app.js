@@ -11,43 +11,91 @@
 
   const ACCOUNT_IDS = ["cash", "upi", "bank", "card"];
 
-  const FirestoreDB = {
-    db() {
-      return firebase.firestore();
-    },
-    requireUid() {
-      const uid =
-        firebase.auth().currentUser?.uid || window.__currentUid || null;
-      if (!uid) throw new Error("Not authenticated. Please log in.");
-      return uid;
-    },
-    userDoc(uid) {
-      return this.db().collection("users").doc(uid);
-    },
-    transactionsCol(uid) {
-      return this.userDoc(uid).collection("transactions");
-    },
-    accountsCol(uid) {
-      return this.userDoc(uid).collection("accounts");
-    },
-    docToTransaction(doc) {
-      const data = doc.data() || {};
-      return { ...data, id: doc.id };
-    },
-  };
-
   const userStorageKey = (baseKey) => {
-    const uid = FirestoreDB.requireUid();
+    const uid = firebase.auth().currentUser?.uid || window.__currentUid || null;
+    if (!uid) return baseKey; // Fallback if not logged in
     return `${baseKey}_${uid}`;
   };
 
   const CATEGORY_META = {
-    food: { icon: "🍔", color: "#ff9f43" },
-    travel: { icon: "✈️", color: "#54a0ff" },
-    gaming: { icon: "🎮", color: "#5f27cd" },
-    bills: { icon: "💡", color: "#ff6b6b" },
-    shopping: { icon: "🛍️", color: "#48dbfb" },
-    others: { icon: "📦", color: "#a29bfe" },
+    food: { icon: "\uD83C\uDF54", color: "#ff9f43" },
+    travel: { icon: "\u2708\uFE0F", color: "#54a0ff" },
+    gaming: { icon: "\uD83C\uDFAE", color: "#5f27cd" },
+    bills: { icon: "\uD83D\uDCA1", color: "#ff6b6b" },
+    shopping: { icon: "\uD83D\uDECD\uFE0F", color: "#48dbfb" },
+    others: { icon: "\uD83D\uDCE6", color: "#a29bfe" },
+  };
+
+  /** Integer paise math — no parseFloat; strings parsed digit-by-digit. */
+  const Money = {
+    decimalStringToCents(str) {
+      const s = String(str).trim().replace(/,/g, "");
+      if (!s) return NaN;
+      const neg = s.startsWith("-");
+      const body = neg ? s.slice(1) : s;
+      const m = body.match(/^(\d+)(?:\.(\d+))?$/);
+      if (!m) return NaN;
+      let rupees = parseInt(m[1], 10);
+      const frac = m[2] || "";
+      let paise = 0;
+      if (frac.length > 0) {
+        const d1 = frac[0] || "0";
+        const d2 = frac[1] || "0";
+        const d3 = frac[2] || "0";
+        paise = parseInt(d1, 10) * 10 + parseInt(d2, 10);
+        if (parseInt(d3, 10) >= 5) paise += 1;
+        if (paise >= 100) {
+          rupees += 1;
+          paise = 0;
+        }
+      }
+      const total = rupees * 100 + paise;
+      return neg ? -total : total;
+    },
+    toCents(amount) {
+      if (amount === "" || amount == null) return 0;
+      if (typeof amount === "string") {
+        const c = Money.decimalStringToCents(amount);
+        return Number.isFinite(c) ? c : 0;
+      }
+      const n = Number(amount);
+      if (!Number.isFinite(n)) return 0;
+      const c = Money.decimalStringToCents(n.toFixed(2));
+      return Number.isFinite(c) ? c : 0;
+    },
+    fromCents(cents) {
+      return cents / 100;
+    },
+    round(amount) {
+      return Money.fromCents(Money.toCents(amount));
+    },
+    parse(value) {
+      if (value === "" || value == null) return NaN;
+      if (typeof value === "string") {
+        const c = Money.decimalStringToCents(value);
+        return Number.isFinite(c) ? Money.fromCents(c) : NaN;
+      }
+      const n = Number(value);
+      if (!Number.isFinite(n)) return NaN;
+      return Money.fromCents(Money.toCents(n));
+    },
+    sum(amounts) {
+      let cents = 0;
+      for (const a of amounts) cents += Money.toCents(a);
+      return Money.fromCents(cents);
+    },
+    subtract(a, b) {
+      return Money.fromCents(Money.toCents(a) - Money.toCents(b));
+    },
+    normalizeTransaction(tx) {
+      if (!tx) return tx;
+      const id = tx.id || tx._id;
+      const paise =
+        tx.amountPaise != null && Number.isFinite(Number(tx.amountPaise))
+          ? Math.round(Number(tx.amountPaise))
+          : Money.toCents(tx.amount);
+      return { ...tx, id, amountPaise: paise, amount: Money.fromCents(paise) };
+    },
   };
 
   const els = {
@@ -140,10 +188,17 @@
     seeMoreLessBtn: document.getElementById("see-more-alerts-less-btn"),
   };
 
-  // Smart API URL: works whether the page is opened via file:// or http://localhost (Live Server)
-  const API_URL = (window.location.protocol === "file:" || window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1")
-    ? "http://localhost:5000/api"
-    : "/api";
+  const resolveApiUrl = () => {
+    const { protocol, hostname, port } = window.location;
+    if (protocol === "file:") return "http://localhost:5000/api";
+    if (hostname === "localhost" || hostname === "127.0.0.1") {
+      if (port === "5000") return "/api";
+      return "http://localhost:5000/api";
+    }
+    return "/api";
+  };
+  const API_URL = resolveApiUrl();
+  const API_ORIGIN = API_URL.replace(/\/api\/?$/, "") || window.location.origin;
 
   // Get Firebase Auth headers for authenticated API calls
   const getAuthHeaders = async () => {
@@ -153,105 +208,145 @@
     return { "Content-Type": "application/json", Authorization: `Bearer ${token}` };
   };
 
-  // Safe JSON fetch helper (auto-injects auth headers)
   const safeFetch = async (url, options = {}) => {
-    // Merge auth headers into every request
-    const authHeaders = await getAuthHeaders();
-    options.headers = { ...authHeaders, ...(options.headers || {}) };
-    const res = await fetch(url, options);
-    const text = await res.text();
-    if (!text || !text.trim()) throw new Error("Server returned an empty response. Make sure the backend server is running on port 5000.");
-    let data;
-    try { data = JSON.parse(text); } catch {
-      throw new Error("Server response was not valid JSON. Check server logs for errors.");
+    try {
+      const authHeaders = await getAuthHeaders();
+      options.headers = { ...authHeaders, ...(options.headers || {}) };
+      const res = await fetch(url, options);
+      const text = await res.text();
+      if (!text || !text.trim()) {
+        throw new Error(
+          "Server returned an empty response. Run npm start and open http://localhost:5000",
+        );
+      }
+      let data;
+      try {
+        data = JSON.parse(text);
+      } catch {
+        throw new Error("Server response was not valid JSON. Check server logs for errors.");
+      }
+      if (!res.ok) throw new Error(data.error || data.message || `Server error ${res.status}`);
+      return data;
+    } catch (err) {
+      if (err.message === "Failed to fetch" || err.name === "TypeError") {
+        throw new Error(
+          "Cannot reach the AI server. Run npm start in the project folder, then open http://localhost:5000 (not Live Server).",
+        );
+      }
+      throw err;
     }
-    if (!res.ok) throw new Error(data.error || data.message || `Server error ${res.status}`);
-    return data;
   };
 
-  const syncAccountBalancesToFirestore = async (uid, transactions) => {
-    const balances = Analytics.accountBalances(transactions);
-    const batch = FirestoreDB.db().batch();
-    ACCOUNT_IDS.forEach((accountId) => {
-      const ref = FirestoreDB.accountsCol(uid).doc(accountId);
-      batch.set(
-        ref,
-        {
-          balance: balances[accountId] || 0,
-          updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
-        },
-        { merge: true },
+  const ChatAssistant = {
+    filterLabel(filter) {
+      if (filter === "weekly") return "last 7 days";
+      if (filter === "monthly") return "this month";
+      if (filter === "yearly") return "this year";
+      return "all time";
+    },
+    tryLocalReply(text, transactions, filter) {
+      const q = text.toLowerCase().trim();
+      const label = ChatAssistant.filterLabel(filter);
+      const scoped = Analytics.getFiltered(transactions, filter);
+      const totals = Analytics.totals(scoped);
+      const accounts = Analytics.accountBalances(transactions);
+      const fmt = UI.formatCurrency.bind(UI);
+
+      if (
+        /^(total\s+)?balance$|what(?:'s| is) my (?:total )?balance|current balance|net balance/.test(
+          q,
+        )
+      ) {
+        return `Your ${label} net balance is ${fmt(totals.balance)} (Income: ${fmt(totals.income)}, Expenses: ${fmt(totals.expense)}).`;
+      }
+      if (/^balance$/.test(q)) {
+        return `Your net balance for ${label} is ${fmt(totals.balance)}.`;
+      }
+      if (/total income|how much did i earn|my income/.test(q)) {
+        return `Your total income for ${label} is ${fmt(totals.income)}.`;
+      }
+      if (/total expense|how much did i spend|my spending|total expenses/.test(q)) {
+        return `Your total expenses for ${label} are ${fmt(totals.expense)}.`;
+      }
+      if (/account balance|balances by account/.test(q)) {
+        return `Account balances (all time): Cash ${fmt(accounts.cash)}, UPI ${fmt(accounts.upi)}, Bank ${fmt(accounts.bank)}, Card ${fmt(accounts.card)}.`;
+      }
+      const top = Analytics.getTopCategory(
+        Analytics.expensesByCategory(
+          Analytics.getFiltered(
+            transactions.filter((t) => t.type === "expense"),
+            filter,
+          ),
+        ),
       );
-    });
-    await batch.commit();
+      if (/top (category|spending)|biggest expense/.test(q) && top) {
+        return `Your top spending category for ${label} is ${UI.titleCase(top[0])} at ${fmt(top[1])}.`;
+      }
+      return null;
+    },
+    async apiReachable() {
+      try {
+        const res = await fetch(`${API_URL}/ai/health`, { method: "GET" });
+        return res.ok;
+      } catch {
+        return false;
+      }
+    },
   };
+
+
 
   const Store = {
     async loadTransactions() {
-      const uid = FirestoreDB.requireUid();
       try {
-        const snap = await FirestoreDB.transactionsCol(uid)
-          .orderBy("date", "desc")
-          .get();
-        return snap.docs.map((doc) => FirestoreDB.docToTransaction(doc));
+        const response = await safeFetch(`${API_URL}/transactions`);
+        return response.data || [];
       } catch (err) {
         console.error("Load failed:", err);
         return [];
       }
     },
     async saveTransaction(tx) {
-      const uid = FirestoreDB.requireUid();
-      const ref = FirestoreDB.transactionsCol(uid).doc();
-      const payload = {
-        type: tx.type,
-        account: tx.account || "cash",
-        amount: tx.amount,
-        category: tx.category,
-        date: tx.date,
-        description: tx.description || "",
-        createdAt: firebase.firestore.FieldValue.serverTimestamp(),
-      };
-      if (tx.recurringId) payload.recurringId = tx.recurringId;
-      await ref.set(payload);
-      const transactions = await Store.loadTransactions();
-      await syncAccountBalancesToFirestore(uid, transactions);
-      return { ...payload, id: ref.id };
+      try {
+        const response = await safeFetch(`${API_URL}/transactions`, {
+          method: "POST",
+          body: JSON.stringify(tx)
+        });
+        
+        // Sync balances in background if needed (API should return updated balance)
+        return response.data;
+      } catch (err) {
+        throw err;
+      }
     },
     async updateTransaction(id, tx) {
-      const uid = FirestoreDB.requireUid();
-      const ref = FirestoreDB.transactionsCol(uid).doc(id);
-      const snap = await ref.get();
-      if (!snap.exists) throw new Error("Transaction not found");
-      const updates = {};
-      if (tx.type) updates.type = tx.type;
-      if (tx.account) updates.account = tx.account;
-      if (tx.amount !== undefined) updates.amount = tx.amount;
-      if (tx.category) updates.category = tx.category;
-      if (tx.date) updates.date = tx.date;
-      if (tx.description !== undefined) updates.description = tx.description;
-      updates.updatedAt = firebase.firestore.FieldValue.serverTimestamp();
-      await ref.update(updates);
-      const transactions = await Store.loadTransactions();
-      await syncAccountBalancesToFirestore(uid, transactions);
-      return FirestoreDB.docToTransaction(await ref.get());
+      try {
+        const response = await safeFetch(`${API_URL}/transactions/${id}`, {
+          method: "PUT",
+          body: JSON.stringify(tx)
+        });
+        return response.data;
+      } catch (err) {
+        throw err;
+      }
     },
     async deleteTransaction(id) {
-      const uid = FirestoreDB.requireUid();
-      const ref = FirestoreDB.transactionsCol(uid).doc(id);
-      const snap = await ref.get();
-      if (!snap.exists) throw new Error("Transaction not found");
-      await ref.delete();
-      const transactions = await Store.loadTransactions();
-      await syncAccountBalancesToFirestore(uid, transactions);
+      try {
+        await safeFetch(`${API_URL}/transactions/${id}`, {
+          method: "DELETE"
+        });
+      } catch (err) {
+        throw err;
+      }
     },
     async deleteAllTransactions() {
-      const uid = FirestoreDB.requireUid();
-      const snap = await FirestoreDB.transactionsCol(uid).get();
-      if (snap.empty) return;
-      const batch = FirestoreDB.db().batch();
-      snap.docs.forEach((doc) => batch.delete(doc.ref));
-      await batch.commit();
-      await syncAccountBalancesToFirestore(uid, []);
+      try {
+        await safeFetch(`${API_URL}/transactions`, {
+          method: "DELETE"
+        });
+      } catch (err) {
+        throw err;
+      }
     },
     loadTheme() {
       return localStorage.getItem(STORAGE_KEYS.THEME) || "dark";
@@ -369,28 +464,49 @@
       });
     },
     accountBalances(transactions) {
-      return transactions.reduce((acc, tx) => {
+      const cents = { cash: 0, upi: 0, bank: 0, card: 0 };
+      transactions.forEach((tx) => {
         const a = tx.account || "cash";
-        acc[a] = (acc[a] || 0) + (tx.type === "income" ? tx.amount : -tx.amount);
-        return acc;
-      }, { cash: 0, upi: 0, bank: 0, card: 0 });
+        const delta =
+          tx.type === "income"
+            ? Money.toCents(tx.amount)
+            : -Money.toCents(tx.amount);
+        cents[a] = (cents[a] || 0) + delta;
+      });
+      return {
+        cash: Money.fromCents(cents.cash),
+        upi: Money.fromCents(cents.upi),
+        bank: Money.fromCents(cents.bank),
+        card: Money.fromCents(cents.card),
+      };
     },
     totals(transactions) {
-      const income = transactions
-        .filter((t) => t.type === "income")
-        .reduce((sum, t) => sum + t.amount, 0);
-      const expense = transactions
-        .filter((t) => t.type === "expense")
-        .reduce((sum, t) => sum + t.amount, 0);
-      return { income, expense, balance: income - expense };
+      const income = Money.sum(
+        transactions.filter((t) => t.type === "income").map((t) => t.amount),
+      );
+      const expense = Money.sum(
+        transactions.filter((t) => t.type === "expense").map((t) => t.amount),
+      );
+      return {
+        income,
+        expense,
+        balance: Money.subtract(income, expense),
+      };
     },
     expensesByCategory(transactions) {
-      return transactions
+      const centsByCat = {};
+      transactions
         .filter((t) => t.type === "expense")
-        .reduce((acc, tx) => {
-          acc[tx.category] = (acc[tx.category] || 0) + tx.amount;
-          return acc;
-        }, {});
+        .forEach((tx) => {
+          const cat = tx.category;
+          centsByCat[cat] = (centsByCat[cat] || 0) + Money.toCents(tx.amount);
+        });
+      return Object.fromEntries(
+        Object.entries(centsByCat).map(([cat, c]) => [
+          cat,
+          Money.fromCents(c),
+        ]),
+      );
     },
     getTopCategory(categoryTotals) {
       const entries = Object.entries(categoryTotals).sort(
@@ -427,12 +543,16 @@
     spendingTrend(transactions) {
       const { currentMonth, lastMonth } =
         Analytics.monthlyBreakdown(transactions);
-      const currentExpense = currentMonth
-        .filter((t) => t.type === "expense")
-        .reduce((sum, t) => sum + t.amount, 0);
-      const lastExpense = lastMonth
-        .filter((t) => t.type === "expense")
-        .reduce((sum, t) => sum + t.amount, 0);
+      const currentExpense = Money.sum(
+        currentMonth
+          .filter((t) => t.type === "expense")
+          .map((t) => t.amount),
+      );
+      const lastExpense = Money.sum(
+        lastMonth
+          .filter((t) => t.type === "expense")
+          .map((t) => t.amount),
+      );
 
       if (!currentExpense && !lastExpense) {
         return { text: "No monthly trend yet", tone: "neutral" };
@@ -516,22 +636,28 @@
         Analytics.monthlyBreakdown(transactions);
       const currentTotals = Analytics.expensesByCategory(currentMonth);
       const lastTotals = Analytics.expensesByCategory(lastMonth);
-      const currentExpense = currentMonth
-        .filter((t) => t.type === "expense")
-        .reduce((s, t) => s + t.amount, 0);
+      const currentExpense = Money.sum(
+        currentMonth
+          .filter((t) => t.type === "expense")
+          .map((t) => t.amount),
+      );
 
       // Yearly Insights
       const now = new Date();
       const currentYear = transactions.filter((tx) => new Date(tx.date).getFullYear() === now.getFullYear());
-      const yearlyExpense = currentYear
-        .filter((t) => t.type === "expense")
-        .reduce((s, t) => s + t.amount, 0);
-      const yearlyIncome = currentYear
-        .filter((t) => t.type === "income")
-        .reduce((s, t) => s + t.amount, 0);
+      const yearlyExpense = Money.sum(
+        currentYear
+          .filter((t) => t.type === "expense")
+          .map((t) => t.amount),
+      );
+      const yearlyIncome = Money.sum(
+        currentYear
+          .filter((t) => t.type === "income")
+          .map((t) => t.amount),
+      );
       
       if (yearlyIncome > 0) {
-        const net = yearlyIncome - yearlyExpense;
+        const net = Money.subtract(yearlyIncome, yearlyExpense);
         if (net >= 0) {
           const savingsRate = ((net / yearlyIncome) * 100).toFixed(1);
           insights.push(`Yearly Snapshot: You've saved ${savingsRate}% of your income this year.`);
@@ -586,7 +712,9 @@
       return new Intl.NumberFormat("en-IN", {
         style: "currency",
         currency: "INR",
-      }).format(value);
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+      }).format(Money.round(value));
     },
     escapeHtml(text) {
       return String(text)
@@ -602,9 +730,9 @@
     syncTheme(theme) {
       document.body.setAttribute("data-theme", theme);
       els.themeLabel.textContent = theme === "dark" ? "Dark" : "Light";
-      els.themeIcon.textContent = theme === "dark" ? "🌙" : "☀️";
+      els.themeIcon.textContent = theme === "dark" ? "\uD83C\uDF19" : "\uD83D\uDD06";
       if (els.mobileThemeLabel) els.mobileThemeLabel.textContent = theme === "dark" ? "Light Mode" : "Dark Mode";
-      if (els.mobileThemeIcon) els.mobileThemeIcon.textContent = theme === "dark" ? "☀️" : "🌙";
+      if (els.mobileThemeIcon) els.mobileThemeIcon.textContent = theme === "dark" ? "\uD83D\uDD06" : "\uD83C\uDF19";
     },
     updateCards(totals, topCategoryData) {
       if (!topCategoryData)
@@ -658,12 +786,12 @@
         
         const modalContent = els.budgetModal.querySelector('.modal-content');
         if (isCritical) {
-          els.budgetModalIcon.textContent = "🚨";
+          els.budgetModalIcon.textContent = "\uD83D\uDEA8";
           els.budgetModalIcon.style.animation = "pulseVoice 1s infinite";
           modalContent.style.borderTopColor = "var(--expense)";
           els.budgetModalClose.style.background = "var(--expense)";
         } else {
-          els.budgetModalIcon.textContent = "⚠️";
+          els.budgetModalIcon.textContent = "\u26A0\uFE0F";
           els.budgetModalIcon.style.animation = "none";
           modalContent.style.borderTopColor = "var(--warning)";
           els.budgetModalClose.style.background = "var(--warning)";
@@ -671,20 +799,15 @@
       }
       els.budgetModal.classList.toggle("hidden", !isOpen);
     },
-    animateCurrency(el, target) {
-      const start = Number(el.dataset.value || 0);
-      const duration = 420;
-      const t0 = performance.now();
-      const run = (now) => {
-        const p = Math.min((now - t0) / duration, 1);
-        const eased = 1 - (1 - p) * (1 - p);
-        const current = start + (target - start) * eased;
-        el.textContent = UI.formatCurrency(current);
-        if (p < 1) return requestAnimationFrame(run);
-        el.dataset.value = String(target);
-        el.textContent = UI.formatCurrency(target);
-      };
-      requestAnimationFrame(run);
+    setCurrency(el, target) {
+      if (!el) return;
+      if (el._currencyAnimFrame) {
+        cancelAnimationFrame(el._currencyAnimFrame);
+        el._currencyAnimFrame = null;
+      }
+      const end = Money.round(target);
+      el.dataset.value = String(end);
+      el.textContent = UI.formatCurrency(end);
     },
     showToast(message) {
       if (!els.toast) return;
@@ -761,7 +884,11 @@
     },
     setFormValues(tx) {
       els.type.value = tx.type;
-      els.amount.value = tx.amount;
+      const paise = Money.toCents(tx.amount);
+      const whole = Math.trunc(Math.abs(paise) / 100);
+      const frac = Math.abs(paise) % 100;
+      els.amount.value =
+        frac > 0 ? `${whole}.${String(frac).padStart(2, "0")}` : String(whole);
       els.category.value = tx.category;
       els.date.value = tx.date;
       els.description.value = tx.description;
@@ -1012,13 +1139,23 @@
       if (els.balanceCard) els.balanceCard.textContent = "₹0.00";
     },
     async loadUserData() {
-      if (!firebase.auth().currentUser && !window.__currentUid) return;
-      App.state.budgets = Store.loadBudgets();
-      App.state.recurring = Store.loadRecurring();
-      App.state.alerts = Store.loadAlerts();
-      App.state.transactions = await Store.loadTransactions();
-      await App.processRecurringTransactions();
-      App.render();
+      const user = firebase.auth().currentUser || { uid: window.__currentUid };
+      if (!user || !user.uid) return;
+      
+      try {
+        App.state.budgets = Store.loadBudgets();
+        App.state.recurring = Store.loadRecurring();
+        App.state.alerts = Store.loadAlerts();
+        
+        const loaded = await Store.loadTransactions();
+        App.state.transactions = loaded.map((tx) => Money.normalizeTransaction(tx));
+        
+        await App.processRecurringTransactions();
+        App.render();
+      } catch (err) {
+        console.error("Failed to load user data:", err);
+        UI.showToast("Failed to load data. Please refresh.");
+      }
     },
     async init() {
       UI.syncTheme(App.state.theme);
@@ -1246,7 +1383,7 @@
         
         try {
           const data = await API.AI.parseSms(transcript);
-          if (els.amount) els.amount.value = data.amount;
+          if (els.amount) els.amount.value = Money.round(data.amount);
           if (els.description) els.description.value = data.description;
           if (els.type) els.type.value = data.type;
 
@@ -1271,11 +1408,11 @@
 
       recognition.onerror = (event) => {
         const errorMessages = {
-          'network': '🔇 Network error. Please check your internet connection. (Note: Brave and Firefox may block voice features. Try Chrome or Safari.)',
-          'not-allowed': '🎤 Microphone access denied. Please allow microphone permission in your browser settings.',
-          'no-speech': '🤫 No speech detected. Please try again and speak clearly.',
-          'audio-capture': '🎤 No microphone found. Please connect a microphone.',
-          'aborted': '🛑 Voice input was cancelled.',
+          'network': '\uD83D\uDD07 Network error. Please check your internet connection. (Note: Brave and Firefox may block voice features. Try Chrome or Safari.)',
+          'not-allowed': '\uD83C\uDFA4 Microphone access denied. Please allow microphone permission in your browser settings.',
+          'no-speech': '\uD83E\uDD2B No speech detected. Please try again and speak clearly.',
+          'audio-capture': '\uD83C\uDFA4 No microphone found. Please connect a microphone.',
+          'aborted': '\uD83D\uDED1 Voice input was cancelled.',
         };
         UI.showToast(errorMessages[event.error] || "Voice error: " + event.error);
       };
@@ -1359,20 +1496,41 @@
       els.chatMessages.scrollTop = els.chatMessages.scrollHeight;
 
       try {
-        const filteredTransactions = Analytics.getFiltered(App.state.transactions, App.state.filter);
-        const data = await API.AI.chat(text, App.state.chatHistory, filteredTransactions);
+        let replyText = ChatAssistant.tryLocalReply(
+          text,
+          App.state.transactions,
+          App.state.filter,
+        );
+        if (!replyText) {
+          const online = await ChatAssistant.apiReachable();
+          if (!online) {
+            throw new Error(
+              'Cannot reach the AI server. Run npm start, then open http://localhost:5000. Try "total balance" for instant answers from your data.',
+            );
+          }
+          const filteredTransactions = Analytics.getFiltered(
+            App.state.transactions,
+            App.state.filter,
+          );
+          const data = await API.AI.chat(
+            text,
+            App.state.chatHistory,
+            filteredTransactions,
+          );
+          replyText = data.response;
+        }
         loadingEl.remove();
         const botMsg = document.createElement('div');
         botMsg.className = 'chat-message bot';
-        botMsg.innerHTML = `<div class="chat-bubble">${UI.escapeHtml(data.response)}</div><span class="chat-time">${now}</span>`;
+        botMsg.innerHTML = `<div class="chat-bubble">${UI.escapeHtml(replyText)}</div><span class="chat-time">${now}</span>`;
         els.chatMessages.appendChild(botMsg);
         App.state.chatHistory.push({ role: 'user', text });
-        App.state.chatHistory.push({ role: 'model', text: data.response });
+        App.state.chatHistory.push({ role: 'model', text: replyText });
       } catch (err) {
         loadingEl.remove();
         const errMsg = document.createElement('div');
         errMsg.className = 'chat-message bot';
-        errMsg.innerHTML = `<div class="chat-bubble" style="border-color:rgba(255,80,80,0.3);color:#ff8080">⚠️ ${UI.escapeHtml(err.message)}</div>`;
+        errMsg.innerHTML = `<div class="chat-bubble" style="border-color:rgba(255,80,80,0.3);color:#ff8080">\u26A0\uFE0F ${UI.escapeHtml(err.message)}</div>`;
         els.chatMessages.appendChild(errMsg);
       }
       els.chatMessages.scrollTop = els.chatMessages.scrollHeight;
@@ -1382,7 +1540,7 @@
       const payload = {
         type: els.type.value,
         account: els.account ? els.account.value : 'cash',
-        amount: Number(els.amount.value),
+        amount: Money.parse(String(els.amount.value).trim()),
         category: els.category.value === "custom" ? els.customCategory.value.trim().toLowerCase() : els.category.value,
         date: els.date.value,
         description: els.description.value.trim(),
@@ -1394,14 +1552,24 @@
       els.submitBtn.disabled = true;
       try {
         if (App.state.editingId) {
-          await Store.updateTransaction(App.state.editingId, payload);
+          const updatedTx = Money.normalizeTransaction(
+            await Store.updateTransaction(App.state.editingId, payload),
+          );
+          const index = App.state.transactions.findIndex(t => t.id === App.state.editingId);
+          if (index !== -1) App.state.transactions[index] = updatedTx;
         } else {
-          await Store.saveTransaction(payload);
+          const newTx = Money.normalizeTransaction(
+            await Store.saveTransaction(payload),
+          );
+          App.state.transactions.push(newTx);
         }
+        
+        // Sort transactions by date descending
+        App.state.transactions.sort((a, b) => new Date(b.date) - new Date(a.date));
+        
         App.pushAlert(App.state.editingId ? "Transaction updated" : "Transaction added");
         App.cancelEdit();
         if(App.closeAddSheet) App.closeAddSheet();
-        App.state.transactions = await Store.loadTransactions();
         App.render();
       } catch (err) {
         els.formError.textContent = err.message;
@@ -1440,7 +1608,7 @@
     handleBudgetSubmit(event) {
       event.preventDefault();
       const category = els.budgetCategory.value;
-      const amount = Number(els.budgetAmount.value);
+      const amount = Money.parse(els.budgetAmount.value);
       if (!category || !Number.isFinite(amount) || amount <= 0) {
         UI.showToast("Enter valid category and budget");
         return;
@@ -1466,7 +1634,7 @@
       event.preventDefault();
       const payload = {
         type: els.recurringType.value,
-        amount: Number(els.recurringAmount.value),
+        amount: Money.parse(els.recurringAmount.value),
         category: els.recurringCategory.value,
         day: Number(els.recurringDay.value),
         description: els.recurringDescription.value.trim(),
@@ -1521,8 +1689,8 @@
             description: `${rule.description} (Auto)`,
             recurringId: rule.id,
           };
-          Store.saveTransaction(newTx).then(saved => {
-            App.state.transactions.push({ ...saved, id: saved.id });
+          Store.saveTransaction(newTx).then((saved) => {
+            App.state.transactions.push(Money.normalizeTransaction(saved));
             App.render();
           });
           changed = true;
@@ -1596,8 +1764,8 @@
         ...preset,
       };
 
-      Store.saveTransaction(newTx).then(saved => {
-        App.state.transactions.push({ ...saved, id: saved.id });
+      Store.saveTransaction(newTx).then((saved) => {
+        App.state.transactions.push(Money.normalizeTransaction(saved));
         App.pushAlert(`Quick add: ${preset.description}`);
         App.render();
       }).catch(err => {
@@ -1619,7 +1787,7 @@
           UI.setBudgetModalOpen(true, "Budget Exceeded!", msg, true);
           App.state.alertSeen[key100] = true;
         } else if (ratio >= 0.8 && !App.state.alertSeen[key80]) {
-          const msg = `You have used ${(ratio * 100).toFixed(0)}% of your ${UI.titleCase(category)} budget. Remaining: ${UI.formatCurrency(limit - spent)}.`;
+          const msg = `You have used ${(ratio * 100).toFixed(0)}% of your ${UI.titleCase(category)} budget. Remaining: ${UI.formatCurrency(Money.subtract(limit, spent))}.`;
           App.pushAlert(`${UI.titleCase(category)} budget reached 80%`);
           UI.setBudgetModalOpen(true, "Budget Warning", msg, false);
           App.state.alertSeen[key80] = true;
@@ -1805,7 +1973,8 @@
       els.seedDataBtn.textContent = 'Seeding...';
       try {
         await Promise.all(seeds.map(s => Store.saveTransaction(s)));
-        App.state.transactions = await Store.loadTransactions();
+        const seeded = await Store.loadTransactions();
+        App.state.transactions = seeded.map((tx) => Money.normalizeTransaction(tx));
         App.pushAlert("Demo data loaded");
         App.cancelEdit();
         App.render();
@@ -1857,13 +2026,13 @@
       );
       const streak = Analytics.activityStreak(App.state.transactions);
       const accountBalances = Analytics.accountBalances(App.state.transactions);
-      UI.animateCurrency(els.totalBalance, totals.balance);
-      UI.animateCurrency(els.totalIncome, totals.income);
-      UI.animateCurrency(els.totalExpense, totals.expense);
-      UI.animateCurrency(els.balanceCash, accountBalances.cash);
-      UI.animateCurrency(els.balanceUpi, accountBalances.upi);
-      UI.animateCurrency(els.balanceBank, accountBalances.bank);
-      UI.animateCurrency(els.balanceCard, accountBalances.card);
+      UI.setCurrency(els.totalBalance, totals.balance);
+      UI.setCurrency(els.totalIncome, totals.income);
+      UI.setCurrency(els.totalExpense, totals.expense);
+      UI.setCurrency(els.balanceCash, accountBalances.cash);
+      UI.setCurrency(els.balanceUpi, accountBalances.upi);
+      UI.setCurrency(els.balanceBank, accountBalances.bank);
+      UI.setCurrency(els.balanceCard, accountBalances.card);
       UI.updateCards(totals, topCategory);
       UI.updateTrendChip(trend);
       UI.updateHealth(healthScore, streak);

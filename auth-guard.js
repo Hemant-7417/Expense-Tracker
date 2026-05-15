@@ -1,8 +1,8 @@
-/* ═══════════════════════════════════════════════════════════════════
-   Finance Tracker Pro — Auth Guard
+/* ═══════════════════════════════════════════════════════════════════
+   Finance Tracker Pro — Auth Guard
    Prevents unauthenticated users from accessing the dashboard.
    Must be loaded AFTER Firebase SDK and BEFORE app.js
-   ═══════════════════════════════════════════════════════════════════ */
+   ═══════════════════════════════════════════════════════════════════ */
 (() => {
   "use strict";
 
@@ -45,7 +45,7 @@
         avatar.appendChild(img);
         avatar.style.cssText = "display:flex;align-items:center;";
       } else {
-        // Email/password — initials fallback
+        // Email/password — initials fallback
         const initial = user.displayName
           ? user.displayName.charAt(0).toUpperCase()
           : user.email.charAt(0).toUpperCase();

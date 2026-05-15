@@ -141,7 +141,7 @@ exports.getMe = async (req, res) => {
   }
 };
 
-// @desc    Forgot password (placeholder — no email service)
+// @desc    Forgot password (placeholder — no email service)
 // @route   POST /api/auth/forgot-password
 // @access  Public
 exports.forgotPassword = async (req, res) => {

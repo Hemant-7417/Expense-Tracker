@@ -11,6 +11,7 @@ const transactionSchema = new mongoose.Schema(
       type: Number,
       required: [true, "Please provide an amount"],
       min: [0, "Amount cannot be negative"],
+      set: (v) => Math.round((Number(v) + Number.EPSILON) * 100) / 100,
     },
     type: {
       type: String,
@@ -36,6 +37,10 @@ const transactionSchema = new mongoose.Schema(
       type: String,
       trim: true,
       maxlength: [500, "Description cannot be more than 500 characters"],
+    },
+    recurringId: {
+      type: String,
+      index: true,
     },
   },
   { timestamps: true },

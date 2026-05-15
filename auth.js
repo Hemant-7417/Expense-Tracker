@@ -1,7 +1,7 @@
-/* ═══════════════════════════════════════════════════════════════════
-   Finance Tracker Pro — Authentication Logic (Firebase)
+/* ═══════════════════════════════════════════════════════════════════
+   Finance Tracker Pro — Authentication Logic (Firebase)
    Handles login, signup, Google sign-in, forgot password, sessions
-   ═══════════════════════════════════════════════════════════════════ */
+   ═══════════════════════════════════════════════════════════════════ */
 (() => {
   "use strict";
 
@@ -70,7 +70,7 @@
 
   function applyTheme(theme) {
     document.body.setAttribute("data-theme", theme);
-    els.themeIcon.textContent = theme === "dark" ? "🌙" : "☀️";
+    els.themeIcon.textContent = theme === "dark" ? "🌙" : "🔆";
     localStorage.setItem(THEME_KEY, theme);
   }
 
@@ -425,7 +425,7 @@
   // ── Auth State Observer ──
   auth.onAuthStateChanged((user) => {
     if (user) {
-      // User is signed in — redirect to dashboard
+      // User is signed in — redirect to dashboard
       window.location.replace("index.html");
     }
   });

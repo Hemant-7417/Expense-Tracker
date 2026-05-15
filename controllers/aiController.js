@@ -1,4 +1,5 @@
 const { GoogleGenerativeAI } = require("@google/generative-ai");
+const { sumMoney, subtractMoney } = require("../utils/money");
 
 // Initialize Gemini only if key exists
 const getGenAI = () => {
@@ -99,15 +100,17 @@ exports.chat = async (req, res) => {
       history: formattedHistory,
     });
 
-    // Calculate totals server-side to ensure 100% accuracy for the AI
-    const totals = (transactions || []).reduce((acc, t) => {
-      const amt = Number(t.amount) || 0;
-      if (t.type === "income") acc.income += amt;
-      else acc.expense += amt;
-      return acc;
-    }, { income: 0, expense: 0 });
-    
-    const balance = totals.income - totals.expense;
+    const incomeList = (transactions || [])
+      .filter((t) => t.type === "income")
+      .map((t) => t.amount);
+    const expenseList = (transactions || [])
+      .filter((t) => t.type !== "income")
+      .map((t) => t.amount);
+    const totals = {
+      income: sumMoney(incomeList),
+      expense: sumMoney(expenseList),
+    };
+    const balance = subtractMoney(totals.income, totals.expense);
     const currentDate = new Date().toLocaleDateString('en-IN', { 
       weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' 
     });

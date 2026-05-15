@@ -1,4 +1,3 @@
-��
 <!doctype html>
 <html lang="en">
 
@@ -22,7 +21,7 @@
       </div>
       <div class="header-actions">
         <button id="theme-toggle" class="btn ghost-btn" title="Toggle Theme">
-          <span id="theme-icon">🌙</span> <span id="theme-label">Dark</span>
+          <span id="theme-icon">&#127769;</span> <span id="theme-label">Dark</span>
         </button>
         <button id="clear-data" class="btn ghost-btn danger-btn" title="Clear All Data">
           Clear All
@@ -45,20 +44,20 @@
         </button>
         <div id="mobile-menu-dropdown" class="mobile-dropdown hidden">
           <button class="mobile-dropdown-item" data-action="theme">
-            <span class="mobile-dropdown-icon" id="mobile-theme-icon">🌙</span>
+            <span class="mobile-dropdown-icon" id="mobile-theme-icon">&#127769;</span>
             <span id="mobile-theme-label">Dark Mode</span>
           </button>
           <button class="mobile-dropdown-item danger" data-action="clear">
-            <span class="mobile-dropdown-icon">🗑️</span>
+            <span class="mobile-dropdown-icon">&#128465;&#65039;</span>
             <span>Clear All</span>
           </button>
           <div class="mobile-dropdown-divider"></div>
           <button class="mobile-dropdown-item" data-action="pdf">
-            <span class="mobile-dropdown-icon">📄</span>
+            <span class="mobile-dropdown-icon">&#128196;</span>
             <span>Export PDF</span>
           </button>
           <button class="mobile-dropdown-item" data-action="csv">
-            <span class="mobile-dropdown-icon">📊</span>
+            <span class="mobile-dropdown-icon">&#128202;</span>
             <span>Export CSV</span>
           </button>
         </div>
@@ -219,17 +218,17 @@
                 </label>
                 <label class="wide">
                   Amount
-                  <input id="amount" type="number" min="0.01" step="0.01" placeholder="0.00" required />
+                  <input id="amount" type="text" inputmode="decimal" autocomplete="off" placeholder="0.00" required />
                 </label>
                 <label class="wide">
                   Category
                   <select id="category" required>
-                    <option value="food">🍔 Food & Dining</option>
-                    <option value="travel">✈️ Travel & Commute</option>
-                    <option value="gaming">🎮 Gaming & Ent.</option>
-                    <option value="bills">💡 Utilities & Bills</option>
-                    <option value="shopping">🛍️ Shopping</option>
-                    <option value="others" selected>📦 Others</option>
+                    <option value="food">&#127828; Food & Dining</option>
+                    <option value="travel">&#9992;&#65039; Travel & Commute</option>
+                    <option value="gaming">&#127918; Gaming & Ent.</option>
+                    <option value="bills">&#128161; Utilities & Bills</option>
+                    <option value="shopping">&#128717;&#65039; Shopping</option>
+                    <option value="others" selected>&#128230; Others</option>
                   </select>
                 </label>
                 <label class="wide">
@@ -503,6 +502,12 @@
           Hello! I'm your premium financial assistant. How can I help you
           optimize your wealth today?
         </div>
+      </div>
+      <div id="chat-quick-prompts" class="quick-prompts">
+        <button type="button" class="quick-prompt-btn" data-prompt="total balance">Total balance</button>
+        <button type="button" class="quick-prompt-btn" data-prompt="balance">Balance</button>
+        <button type="button" class="quick-prompt-btn" data-prompt="total income">Total income</button>
+        <button type="button" class="quick-prompt-btn" data-prompt="total expenses">Total expenses</button>
       </div>
       <div class="chat-input-area">
         <input id="chat-input" type="text" placeholder="Ask about your spending..." />

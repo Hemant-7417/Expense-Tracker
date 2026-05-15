@@ -17,6 +17,7 @@ const expenseSchema = new mongoose.Schema(
       type: Number,
       required: [true, "Please provide an amount"],
       min: [0, "Amount cannot be negative"],
+      set: (v) => Math.round((Number(v) + Number.EPSILON) * 100) / 100,
     },
     category: {
       type: String,
