@@ -119,20 +119,47 @@
   }
 
   // ── Auth State Observer ──
-  auth.onAuthStateChanged((user) => {
-    if (user) {
-      // User is authenticated — show the app
-      injectUserUI(user);
-      if (appShell) {
-        appShell.style.opacity = "1";
+  // Exposes the current user UID globally so app.js can wait for auth
+  let lastUid = null;
+  let authResolved = false;
+
+  window.__authReady = new Promise((resolve) => {
+    auth.onAuthStateChanged(async (user) => {
+      if (user) {
+        const uidChanged = lastUid && lastUid !== user.uid;
+        lastUid = user.uid;
+        window.__currentUid = user.uid;
+
+        // Clear previous user's UI/state before loading the new account
+        if (uidChanged && typeof window.__clearUserData === "function") {
+          window.__clearUserData();
+        }
+
+        injectUserUI(user);
+        if (appShell) {
+          appShell.style.opacity = "1";
+        }
+        const fabContainer = document.querySelector(".fab-container");
+        if (fabContainer) fabContainer.style.opacity = "1";
+
+        if (!authResolved) {
+          authResolved = true;
+          resolve(user);
+        } else if (
+          uidChanged &&
+          typeof window.__loadUserData === "function"
+        ) {
+          await window.__loadUserData();
+        }
+      } else {
+        lastUid = null;
+        window.__currentUid = null;
+        if (typeof window.__clearUserData === "function") {
+          window.__clearUserData();
+        }
+        window.location.replace("auth.html");
       }
-      // Also show FABs and chatbot wrapper
-      const fabContainer = document.querySelector(".fab-container");
-      if (fabContainer) fabContainer.style.opacity = "1";
-    } else {
-      // Not authenticated — redirect to auth page
-      window.location.replace("auth.html");
-    }
+    });
   });
 
 })();

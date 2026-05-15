@@ -2,6 +2,11 @@ const mongoose = require("mongoose");
 
 const transactionSchema = new mongoose.Schema(
   {
+    userId: {
+      type: String,
+      required: [true, "userId is required for data isolation"],
+      index: true,
+    },
     amount: {
       type: Number,
       required: [true, "Please provide an amount"],
@@ -20,14 +25,6 @@ const transactionSchema = new mongoose.Schema(
     },
     category: {
       type: String,
-      enum: [
-        "food",
-        "travel",
-        "gaming",
-        "bills",
-        "shopping",
-        "others",
-      ],
       default: "others",
       required: [true, "Please provide a category"],
     },

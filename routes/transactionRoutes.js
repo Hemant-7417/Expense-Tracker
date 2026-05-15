@@ -1,5 +1,6 @@
 const express = require("express");
 const router = express.Router();
+const { protect } = require("../middleware/authMiddleware");
 const {
   createTransaction,
   getAllTransactions,
@@ -12,6 +13,9 @@ const {
   getTransactionsByDateRange,
   deleteAllTransactions,
 } = require("../controllers/transactionController");
+
+// Apply Firebase auth middleware to ALL transaction routes
+router.use(protect);
 
 // CRUD
 router.post("/", createTransaction);

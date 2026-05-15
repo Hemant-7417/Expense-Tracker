@@ -1,5 +1,6 @@
 const express = require("express");
 const router = express.Router();
+const { protect } = require("../middleware/authMiddleware");
 const {
   createExpense,
   getAllExpenses,
@@ -10,15 +11,15 @@ const {
   getTotalExpense,
 } = require("../controllers/expenseController");
 
-// CRUD Routes
-router.post("/", createExpense); // POST /api/expenses - Create new expense
-router.get("/", getAllExpenses); // GET /api/expenses - Get all expenses
-router.get("/:id", getExpenseById); // GET /api/expenses/:id - Get single expense
-router.put("/:id", updateExpense); // PUT /api/expenses/:id - Update expense
-router.delete("/:id", deleteExpense); // DELETE /api/expenses/:id - Delete expense
+// Apply Firebase auth middleware to ALL expense routes
+router.use(protect);
 
-// Additional Routes
-router.get("/category/:category", getExpensesByCategory); // GET /api/expenses/category/:category - Get by category
-router.get("/stats/total", getTotalExpense); // GET /api/expenses/stats/total - Get total expenses
+router.post("/", createExpense);
+router.get("/", getAllExpenses);
+router.get("/total", getTotalExpense);
+router.get("/category/:category", getExpensesByCategory);
+router.get("/:id", getExpenseById);
+router.put("/:id", updateExpense);
+router.delete("/:id", deleteExpense);
 
 module.exports = router;

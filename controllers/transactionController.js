@@ -3,7 +3,7 @@ const Transaction = require("../models/Transaction");
 // Create a new transaction
 exports.createTransaction = async (req, res) => {
   try {
-    const { amount, type, account, category, description, date } = req.body;
+    const { amount, type, account, category, description, date, recurringId } = req.body;
 
     if (!amount || !type || !account || !category) {
       return res.status(400).json({
@@ -13,12 +13,14 @@ exports.createTransaction = async (req, res) => {
     }
 
     const transaction = await Transaction.create({
+      userId: req.uid,
       amount,
       type,
       account,
       category,
       description,
       date: date || new Date(),
+      recurringId: recurringId || undefined,
     });
 
     res.status(201).json({
@@ -34,10 +36,10 @@ exports.createTransaction = async (req, res) => {
   }
 };
 
-// Get all transactions
+// Get all transactions (scoped to current user)
 exports.getAllTransactions = async (req, res) => {
   try {
-    const transactions = await Transaction.find().sort({ date: -1 });
+    const transactions = await Transaction.find({ userId: req.uid }).sort({ date: -1 });
 
     res.status(200).json({
       success: true,
@@ -52,10 +54,10 @@ exports.getAllTransactions = async (req, res) => {
   }
 };
 
-// Get transaction by ID
+// Get transaction by ID (scoped to current user)
 exports.getTransactionById = async (req, res) => {
   try {
-    const transaction = await Transaction.findById(req.params.id);
+    const transaction = await Transaction.findOne({ _id: req.params.id, userId: req.uid });
 
     if (!transaction) {
       return res.status(404).json({
@@ -76,13 +78,13 @@ exports.getTransactionById = async (req, res) => {
   }
 };
 
-// Update transaction
+// Update transaction (scoped to current user)
 exports.updateTransaction = async (req, res) => {
   try {
     const { id } = req.params;
     const { amount, type, account, category, description, date } = req.body;
 
-    let transaction = await Transaction.findById(id);
+    let transaction = await Transaction.findOne({ _id: id, userId: req.uid });
 
     if (!transaction) {
       return res.status(404).json({
@@ -113,10 +115,10 @@ exports.updateTransaction = async (req, res) => {
   }
 };
 
-// Delete transaction
+// Delete transaction (scoped to current user)
 exports.deleteTransaction = async (req, res) => {
   try {
-    const transaction = await Transaction.findByIdAndDelete(req.params.id);
+    const transaction = await Transaction.findOneAndDelete({ _id: req.params.id, userId: req.uid });
 
     if (!transaction) {
       return res.status(404).json({
@@ -138,10 +140,10 @@ exports.deleteTransaction = async (req, res) => {
   }
 };
 
-// Get transactions by type
+// Get transactions by type (scoped to current user)
 exports.getTransactionsByType = async (req, res) => {
   try {
-    const transactions = await Transaction.find({ type: req.params.type }).sort({ date: -1 });
+    const transactions = await Transaction.find({ type: req.params.type, userId: req.uid }).sort({ date: -1 });
 
     res.status(200).json({
       success: true,
@@ -156,10 +158,10 @@ exports.getTransactionsByType = async (req, res) => {
   }
 };
 
-// Get transactions by category
+// Get transactions by category (scoped to current user)
 exports.getTransactionsByCategory = async (req, res) => {
   try {
-    const transactions = await Transaction.find({ category: req.params.category }).sort({ date: -1 });
+    const transactions = await Transaction.find({ category: req.params.category, userId: req.uid }).sort({ date: -1 });
 
     res.status(200).json({
       success: true,
@@ -174,10 +176,11 @@ exports.getTransactionsByCategory = async (req, res) => {
   }
 };
 
-// Get transaction summary
+// Get transaction summary (scoped to current user)
 exports.getTransactionSummary = async (req, res) => {
   try {
     const summary = await Transaction.aggregate([
+      { $match: { userId: req.uid } },
       {
         $group: {
           _id: "$type",
@@ -187,6 +190,7 @@ exports.getTransactionSummary = async (req, res) => {
     ]);
 
     const accountSummary = await Transaction.aggregate([
+      { $match: { userId: req.uid } },
       {
         $group: {
           _id: { account: "$account", type: "$type" },
@@ -222,7 +226,7 @@ exports.getTransactionSummary = async (req, res) => {
   }
 };
 
-// Get transactions by date range
+// Get transactions by date range (scoped to current user)
 exports.getTransactionsByDateRange = async (req, res) => {
   try {
     const { startDate, endDate } = req.query;
@@ -235,6 +239,7 @@ exports.getTransactionsByDateRange = async (req, res) => {
     }
 
     const transactions = await Transaction.find({
+      userId: req.uid,
       date: {
         $gte: new Date(startDate),
         $lte: new Date(endDate)
@@ -254,10 +259,10 @@ exports.getTransactionsByDateRange = async (req, res) => {
   }
 };
 
-// Delete all transactions
+// Delete all transactions (scoped to current user only)
 exports.deleteAllTransactions = async (req, res) => {
   try {
-    await Transaction.deleteMany({});
+    await Transaction.deleteMany({ userId: req.uid });
     res.status(200).json({
       success: true,
       message: "All transactions deleted successfully",

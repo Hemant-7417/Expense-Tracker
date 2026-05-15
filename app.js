@@ -2,12 +2,43 @@
   "use strict";
 
   const STORAGE_KEYS = {
-    TRANSACTIONS: "finance_tracker_transactions_v2",
     THEME: "finance_tracker_theme_v1",
     BUDGETS: "finance_tracker_budgets_v1",
     RECURRING: "finance_tracker_recurring_v1",
     ALERTS: "finance_tracker_alerts_v1",
     CURRENCY: "finance_tracker_currency_v1",
+  };
+
+  const ACCOUNT_IDS = ["cash", "upi", "bank", "card"];
+
+  const FirestoreDB = {
+    db() {
+      return firebase.firestore();
+    },
+    requireUid() {
+      const uid =
+        firebase.auth().currentUser?.uid || window.__currentUid || null;
+      if (!uid) throw new Error("Not authenticated. Please log in.");
+      return uid;
+    },
+    userDoc(uid) {
+      return this.db().collection("users").doc(uid);
+    },
+    transactionsCol(uid) {
+      return this.userDoc(uid).collection("transactions");
+    },
+    accountsCol(uid) {
+      return this.userDoc(uid).collection("accounts");
+    },
+    docToTransaction(doc) {
+      const data = doc.data() || {};
+      return { ...data, id: doc.id };
+    },
+  };
+
+  const userStorageKey = (baseKey) => {
+    const uid = FirestoreDB.requireUid();
+    return `${baseKey}_${uid}`;
   };
 
   const CATEGORY_META = {
@@ -114,8 +145,19 @@
     ? "http://localhost:5000/api"
     : "/api";
 
-  // Safe JSON fetch helper
-  const safeFetch = async (url, options) => {
+  // Get Firebase Auth headers for authenticated API calls
+  const getAuthHeaders = async () => {
+    const user = firebase.auth().currentUser;
+    if (!user) throw new Error("Not authenticated. Please log in.");
+    const token = await user.getIdToken();
+    return { "Content-Type": "application/json", Authorization: `Bearer ${token}` };
+  };
+
+  // Safe JSON fetch helper (auto-injects auth headers)
+  const safeFetch = async (url, options = {}) => {
+    // Merge auth headers into every request
+    const authHeaders = await getAuthHeaders();
+    options.headers = { ...authHeaders, ...(options.headers || {}) };
     const res = await fetch(url, options);
     const text = await res.text();
     if (!text || !text.trim()) throw new Error("Server returned an empty response. Make sure the backend server is running on port 5000.");
@@ -127,37 +169,90 @@
     return data;
   };
 
+  const syncAccountBalancesToFirestore = async (uid, transactions) => {
+    const balances = Analytics.accountBalances(transactions);
+    const batch = FirestoreDB.db().batch();
+    ACCOUNT_IDS.forEach((accountId) => {
+      const ref = FirestoreDB.accountsCol(uid).doc(accountId);
+      batch.set(
+        ref,
+        {
+          balance: balances[accountId] || 0,
+          updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+        },
+        { merge: true },
+      );
+    });
+    await batch.commit();
+  };
+
   const Store = {
     async loadTransactions() {
+      const uid = FirestoreDB.requireUid();
       try {
-        const data = await safeFetch(`${API_URL}/transactions`);
-        return Array.isArray(data.data) ? data.data.map(tx => ({ ...tx, id: tx._id })) : [];
+        const snap = await FirestoreDB.transactionsCol(uid)
+          .orderBy("date", "desc")
+          .get();
+        return snap.docs.map((doc) => FirestoreDB.docToTransaction(doc));
       } catch (err) {
         console.error("Load failed:", err);
         return [];
       }
     },
     async saveTransaction(tx) {
-      const data = await safeFetch(`${API_URL}/transactions`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(tx)
-      });
-      return data.data;
+      const uid = FirestoreDB.requireUid();
+      const ref = FirestoreDB.transactionsCol(uid).doc();
+      const payload = {
+        type: tx.type,
+        account: tx.account || "cash",
+        amount: tx.amount,
+        category: tx.category,
+        date: tx.date,
+        description: tx.description || "",
+        createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+      };
+      if (tx.recurringId) payload.recurringId = tx.recurringId;
+      await ref.set(payload);
+      const transactions = await Store.loadTransactions();
+      await syncAccountBalancesToFirestore(uid, transactions);
+      return { ...payload, id: ref.id };
     },
     async updateTransaction(id, tx) {
-      const data = await safeFetch(`${API_URL}/transactions/${id}`, {
-        method: 'PUT', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(tx)
-      });
-      return data.data;
+      const uid = FirestoreDB.requireUid();
+      const ref = FirestoreDB.transactionsCol(uid).doc(id);
+      const snap = await ref.get();
+      if (!snap.exists) throw new Error("Transaction not found");
+      const updates = {};
+      if (tx.type) updates.type = tx.type;
+      if (tx.account) updates.account = tx.account;
+      if (tx.amount !== undefined) updates.amount = tx.amount;
+      if (tx.category) updates.category = tx.category;
+      if (tx.date) updates.date = tx.date;
+      if (tx.description !== undefined) updates.description = tx.description;
+      updates.updatedAt = firebase.firestore.FieldValue.serverTimestamp();
+      await ref.update(updates);
+      const transactions = await Store.loadTransactions();
+      await syncAccountBalancesToFirestore(uid, transactions);
+      return FirestoreDB.docToTransaction(await ref.get());
     },
     async deleteTransaction(id) {
-      await safeFetch(`${API_URL}/transactions/${id}`, { method: 'DELETE' });
+      const uid = FirestoreDB.requireUid();
+      const ref = FirestoreDB.transactionsCol(uid).doc(id);
+      const snap = await ref.get();
+      if (!snap.exists) throw new Error("Transaction not found");
+      await ref.delete();
+      const transactions = await Store.loadTransactions();
+      await syncAccountBalancesToFirestore(uid, transactions);
     },
     async deleteAllTransactions() {
-      await safeFetch(`${API_URL}/transactions`, { method: 'DELETE' });
+      const uid = FirestoreDB.requireUid();
+      const snap = await FirestoreDB.transactionsCol(uid).get();
+      if (snap.empty) return;
+      const batch = FirestoreDB.db().batch();
+      snap.docs.forEach((doc) => batch.delete(doc.ref));
+      await batch.commit();
+      await syncAccountBalancesToFirestore(uid, []);
     },
-    saveTransactions(transactions) { /* legacy no-op kept for safety */ },
     loadTheme() {
       return localStorage.getItem(STORAGE_KEYS.THEME) || "dark";
     },
@@ -166,7 +261,7 @@
     },
     loadBudgets() {
       try {
-        const raw = localStorage.getItem(STORAGE_KEYS.BUDGETS);
+        const raw = localStorage.getItem(userStorageKey(STORAGE_KEYS.BUDGETS));
         const parsed = raw ? JSON.parse(raw) : {};
         return parsed && typeof parsed === "object" ? parsed : {};
       } catch {
@@ -174,11 +269,14 @@
       }
     },
     saveBudgets(budgets) {
-      localStorage.setItem(STORAGE_KEYS.BUDGETS, JSON.stringify(budgets));
+      localStorage.setItem(
+        userStorageKey(STORAGE_KEYS.BUDGETS),
+        JSON.stringify(budgets),
+      );
     },
     loadRecurring() {
       try {
-        const raw = localStorage.getItem(STORAGE_KEYS.RECURRING);
+        const raw = localStorage.getItem(userStorageKey(STORAGE_KEYS.RECURRING));
         const parsed = raw ? JSON.parse(raw) : [];
         return Array.isArray(parsed) ? parsed : [];
       } catch {
@@ -187,13 +285,13 @@
     },
     saveRecurring(recurring) {
       localStorage.setItem(
-        STORAGE_KEYS.RECURRING,
+        userStorageKey(STORAGE_KEYS.RECURRING),
         JSON.stringify(recurring),
       );
     },
     loadAlerts() {
       try {
-        const raw = localStorage.getItem(STORAGE_KEYS.ALERTS);
+        const raw = localStorage.getItem(userStorageKey(STORAGE_KEYS.ALERTS));
         const parsed = raw ? JSON.parse(raw) : [];
         return Array.isArray(parsed) ? parsed : [];
       } catch {
@@ -201,7 +299,10 @@
       }
     },
     saveAlerts(alerts) {
-      localStorage.setItem(STORAGE_KEYS.ALERTS, JSON.stringify(alerts));
+      localStorage.setItem(
+        userStorageKey(STORAGE_KEYS.ALERTS),
+        JSON.stringify(alerts),
+      );
     },
   };
 
@@ -872,9 +973,9 @@
   const App = {
     state: {
       transactions: [],
-      budgets: Store.loadBudgets(),
-      recurring: Store.loadRecurring(),
-      alerts: Store.loadAlerts(),
+      budgets: {},
+      recurring: [],
+      alerts: [],
       alertSeen: {},
       editingId: null,
       filter: "monthly",
@@ -882,12 +983,47 @@
       chartType: "pie",
       chatHistory: [],
     },
+    clearUserData() {
+      App.state.transactions = [];
+      App.state.budgets = {};
+      App.state.recurring = [];
+      App.state.alerts = [];
+      App.state.alertSeen = {};
+      App.state.editingId = null;
+      App.state.chatHistory = [];
+      window.txLimit = 5;
+      window.alertsLimit = undefined;
+      if (UI.chart) {
+        UI.chart.destroy();
+        UI.chart = null;
+      }
+      UI.resetForm();
+      UI.setEditingState(false);
+      if (els.list) {
+        els.list.innerHTML =
+          '<li class="transaction-item">Sign in to view your transactions.</li>';
+      }
+      if (els.totalBalance) els.totalBalance.textContent = "₹0.00";
+      if (els.totalIncome) els.totalIncome.textContent = "₹0.00";
+      if (els.totalExpense) els.totalExpense.textContent = "₹0.00";
+      if (els.balanceCash) els.balanceCash.textContent = "₹0.00";
+      if (els.balanceUpi) els.balanceUpi.textContent = "₹0.00";
+      if (els.balanceBank) els.balanceBank.textContent = "₹0.00";
+      if (els.balanceCard) els.balanceCard.textContent = "₹0.00";
+    },
+    async loadUserData() {
+      if (!firebase.auth().currentUser && !window.__currentUid) return;
+      App.state.budgets = Store.loadBudgets();
+      App.state.recurring = Store.loadRecurring();
+      App.state.alerts = Store.loadAlerts();
+      App.state.transactions = await Store.loadTransactions();
+      await App.processRecurringTransactions();
+      App.render();
+    },
     async init() {
       UI.syncTheme(App.state.theme);
       UI.resetForm();
       UI.setEditingState(false);
-      App.state.transactions = await Store.loadTransactions();
-      await App.processRecurringTransactions();
       document
         .querySelectorAll(".stat-card, .panel")
         .forEach((node, i) => {
@@ -897,7 +1033,7 @@
       App.initAddSheet();
       App.initHistorySheet();
       App.initRecurringSheet();
-      App.render();
+      await App.loadUserData();
     },
     initAddSheet() {
       if (!els.mobileAddBtn || !els.addSheetBackdrop || !els.addTransactionSheet) return;
@@ -1135,7 +1271,7 @@
 
       recognition.onerror = (event) => {
         const errorMessages = {
-          'network': '🔇 Voice requires HTTPS or localhost, and an active internet connection. Try accessing via localhost:5000.',
+          'network': '🔇 Network error. Please check your internet connection. (Note: Brave and Firefox may block voice features. Try Chrome or Safari.)',
           'not-allowed': '🎤 Microphone access denied. Please allow microphone permission in your browser settings.',
           'no-speech': '🤫 No speech detected. Please try again and speak clearly.',
           'audio-capture': '🎤 No microphone found. Please connect a microphone.',
@@ -1386,7 +1522,7 @@
             recurringId: rule.id,
           };
           Store.saveTransaction(newTx).then(saved => {
-            App.state.transactions.push({ ...saved, id: saved._id });
+            App.state.transactions.push({ ...saved, id: saved.id });
             App.render();
           });
           changed = true;
@@ -1461,7 +1597,7 @@
       };
 
       Store.saveTransaction(newTx).then(saved => {
-        App.state.transactions.push({ ...saved, id: saved._id });
+        App.state.transactions.push({ ...saved, id: saved.id });
         App.pushAlert(`Quick add: ${preset.description}`);
         App.render();
       }).catch(err => {
@@ -1750,5 +1886,11 @@
     },
   };
 
-  App.init();
+  window.__clearUserData = () => App.clearUserData();
+  window.__loadUserData = () => App.loadUserData();
+
+  (async () => {
+    await window.__authReady;
+    await App.init();
+  })();
 })();

@@ -2,6 +2,11 @@ const mongoose = require("mongoose");
 
 const expenseSchema = new mongoose.Schema(
   {
+    userId: {
+      type: String,
+      required: [true, "userId is required for data isolation"],
+      index: true,
+    },
     title: {
       type: String,
       required: [true, "Please provide an expense title"],
@@ -15,14 +20,6 @@ const expenseSchema = new mongoose.Schema(
     },
     category: {
       type: String,
-      enum: [
-        "food",
-        "travel",
-        "gaming",
-        "bills",
-        "shopping",
-        "others",
-      ],
       default: "others",
     },
     description: {

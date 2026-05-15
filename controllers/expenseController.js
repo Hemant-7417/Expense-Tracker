@@ -14,9 +14,10 @@ exports.createExpense = async (req, res) => {
     }
 
     const expense = await Expense.create({
+      userId: req.uid,
       title,
       amount,
-      category: category || "Other",
+      category: category || "others",
       description,
       date: date || new Date(),
     });
@@ -34,10 +35,10 @@ exports.createExpense = async (req, res) => {
   }
 };
 
-// Get all expenses
+// Get all expenses (scoped to current user)
 exports.getAllExpenses = async (req, res) => {
   try {
-    const expenses = await Expense.find().sort({ date: -1 });
+    const expenses = await Expense.find({ userId: req.uid }).sort({ date: -1 });
 
     res.status(200).json({
       success: true,
@@ -52,12 +53,12 @@ exports.getAllExpenses = async (req, res) => {
   }
 };
 
-// Get single expense by ID
+// Get single expense by ID (scoped to current user)
 exports.getExpenseById = async (req, res) => {
   try {
     const { id } = req.params;
 
-    const expense = await Expense.findById(id);
+    const expense = await Expense.findOne({ _id: id, userId: req.uid });
 
     if (!expense) {
       return res.status(404).json({
@@ -78,13 +79,13 @@ exports.getExpenseById = async (req, res) => {
   }
 };
 
-// Update expense
+// Update expense (scoped to current user)
 exports.updateExpense = async (req, res) => {
   try {
     const { id } = req.params;
     const { title, amount, category, description, date } = req.body;
 
-    let expense = await Expense.findById(id);
+    let expense = await Expense.findOne({ _id: id, userId: req.uid });
 
     if (!expense) {
       return res.status(404).json({
@@ -115,12 +116,12 @@ exports.updateExpense = async (req, res) => {
   }
 };
 
-// Delete expense
+// Delete expense (scoped to current user)
 exports.deleteExpense = async (req, res) => {
   try {
     const { id } = req.params;
 
-    const expense = await Expense.findByIdAndDelete(id);
+    const expense = await Expense.findOneAndDelete({ _id: id, userId: req.uid });
 
     if (!expense) {
       return res.status(404).json({
@@ -142,12 +143,12 @@ exports.deleteExpense = async (req, res) => {
   }
 };
 
-// Get expenses by category
+// Get expenses by category (scoped to current user)
 exports.getExpensesByCategory = async (req, res) => {
   try {
     const { category } = req.params;
 
-    const expenses = await Expense.find({ category }).sort({ date: -1 });
+    const expenses = await Expense.find({ category, userId: req.uid }).sort({ date: -1 });
 
     res.status(200).json({
       success: true,
@@ -162,10 +163,11 @@ exports.getExpensesByCategory = async (req, res) => {
   }
 };
 
-// Get total expense amount
+// Get total expense amount (scoped to current user)
 exports.getTotalExpense = async (req, res) => {
   try {
     const result = await Expense.aggregate([
+      { $match: { userId: req.uid } },
       {
         $group: {
           _id: null,

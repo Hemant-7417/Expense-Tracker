@@ -1,9 +1,8 @@
-const jwt = require("jsonwebtoken");
-const User = require("../models/User");
+const admin = require("../firebaseAdmin");
 
 /**
- * Protect routes — verify JWT token from Authorization header.
- * Attaches the authenticated user to `req.user`.
+ * Protect routes — verify Firebase ID token from Authorization header.
+ * Attaches the authenticated user's UID to `req.uid`.
  */
 const protect = async (req, res, next) => {
   let token;
@@ -23,21 +22,14 @@ const protect = async (req, res, next) => {
   }
 
   try {
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    req.user = await User.findById(decoded.id);
-
-    if (!req.user) {
-      return res.status(401).json({
-        success: false,
-        message: "Not authorized — user no longer exists",
-      });
-    }
-
+    const decoded = await admin.auth().verifyIdToken(token);
+    req.uid = decoded.uid;
     next();
   } catch (error) {
+    console.error("Firebase token verification failed:", error.message);
     return res.status(401).json({
       success: false,
-      message: "Not authorized — invalid token",
+      message: "Not authorized — invalid or expired token",
     });
   }
 };

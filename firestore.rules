@@ -1,0 +1,20 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Per-user data: transactions, accounts, budgets, etc.
+    match /users/{userId}/{document=**} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+    }
+
+    // Deny legacy global collections (no shared data)
+    match /transactions/{document=**} {
+      allow read, write: if false;
+    }
+    match /accounts/{document=**} {
+      allow read, write: if false;
+    }
+    match /expenses/{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

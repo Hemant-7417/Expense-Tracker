@@ -1,6 +1,10 @@
 const express = require('express');
 const router = express.Router();
 const aiController = require('../controllers/aiController');
+const { protect } = require('../middleware/authMiddleware');
+
+// Protect all AI routes
+router.use(protect);
 
 router.post('/parse-sms', aiController.parseSms);
 router.post('/insights', aiController.getInsights);
